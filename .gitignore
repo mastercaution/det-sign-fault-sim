@@ -1,0 +1,4 @@
+*.a
+*.o
+ossl_ed25519_attack
+rowhammer_sim_example
