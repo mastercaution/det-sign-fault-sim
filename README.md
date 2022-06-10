@@ -18,7 +18,7 @@ git clone --recurse-submodules https://github.com/mastercaution/det-sign-fault-s
     git apply ../ossl_ed25519_rowhammer_sim.patch
     ```
 3. Build OpenSSL and linking the sim
-    1. `LDFLAGS+="../rowhammer_sim.a" ./Configure`
+    1. `CPPFLAGS+=-DROWHAMMER_SIM LDFLAGS+="../rowhammer_sim.a" ./Configure`
     2. `make`
 
 > CAUTION: This is now a modified version of OpenSSL! Do __not__ install it anywhere and __only__ use is for this simulator!

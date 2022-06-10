@@ -1,5 +1,5 @@
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..1209be8180 100644
+index 286d6bff80..8c4d778bd1 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
 @@ -5439,6 +5439,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
@@ -18,7 +18,7 @@ index 286d6bff80..1209be8180 100644
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,23 +5462,32 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,23 +5462,34 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
@@ -35,10 +35,12 @@ index 286d6bff80..1209be8180 100644
      ge_scalarmult_base(&R, nonce);
      ge_p3_tobytes(out_sig, &R);
  
-+    // TODO: Change message (simulate precise rowhammer attack)
++#ifdef ROWHAMMER_SIM
++    // Change message (simulate precise rowhammer attack)
 +    puts("\e[36m[OSSL] {crypto/ec/curve25519.c:ossl_ed25519_sign()}: Call attack\e[39m");
 +    #include "../../../rowhammer_sim.h"
 +    rowhammer_sim_attack(message, message_len);
++#endif
 +
 +    // Step 3.1: hram = H(R, A, M)
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
