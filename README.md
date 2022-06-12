@@ -28,3 +28,13 @@ make
 ## Attack Information
 ### OSSL Ed25519 Attack (`ossl_ed25519_attack`)
 This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the signing algorithm to use a nonce twice for different messages. It recovers the secret parameter `a` to be able to create forged signatures.
+
+```
+Usage: ossl_ed25519_attack [OPTION...]
+
+  -p, --no-color             Produce plain output without colors
+  -v, --verbose              Produce verbose output
+  -?, --help                 Give this help list
+      --usage                Give a short usage message
+  -V, --version              Print program version
+```

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <argp.h>
 #include <gmp.h>
 
 #include "openssl/conf.h"
@@ -12,6 +13,17 @@
 
 #define SIGN_RUNS 2
 
+// Configure argp
+const char *argp_program_version = "ossl-ed25519-attack 1.0";
+static char doc[] = "A simulated fault attack on OpenSSL Ed25519";
+static struct argp_option options[] = {
+	{"verbose", 'v', 0, 0, "Produce verbose output"},
+	{"no-color", 'p', 0, 0, "Produce plain output without colors"},
+	{0}
+};
+static int parse_opt (int key, char *arg, struct argp_state *state);
+static struct argp argp = {options, parse_opt, 0, doc};
+
 static uint8_t kmsg[] 					= {1, 2, 3, 4};
 static const uint8_t kmsg_original[] 	= {1, 2, 3, 4};
 uint8_t sig[SIGN_RUNS][64];
@@ -19,6 +31,25 @@ uint8_t sig[SIGN_RUNS][64];
 // Function declarations
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len);
 int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2);
+
+// Parse a single option (argp)
+static int parse_opt (int key, char *arg, struct argp_state *state)
+{	
+	switch (key)
+	{
+	case 'v':
+		pp_verbose = 1;
+		break;
+	case 'p':
+		pp_color = 0;
+	
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 
 int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2)
 {
@@ -140,7 +171,10 @@ err:
 
 int main(int arc, char *argv[])
 {
-	pp_verbose = 1;
+	// Parse arguments
+	pp_verbose = 0;
+	pp_color = 1;
+	argp_parse(&argp, arc, argv, 0, 0, 0);
 
 	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:main()}");
 	int ret;
