@@ -3,37 +3,33 @@
 #include <stdio.h>
 
 #include "rowhammer_sim.h"
-
-// stdout logger
-#ifdef RHSIM_VERBOSE
-	#define log(...) printf(__VA_ARGS__)
-#else
-	#define log(...)
-#endif
+#include "pretty_print.h"
 
 static int call_nr = 0;
 
 void rowhammer_sim_attack(const uint8_t *message, size_t message_len)
 {
-	log("\e[36m[RHSIM] {rowhammer_sim.c:rowhammer_sim_attack()}: Attack called\e[39m\n");
+	pretty_print_cfg("[RHSIM] {rowhammer_sim.c:rowhammer_sim_attack()}");
+	pretty_print_v_text("Attack called");
 	call_nr++;
 
 	// Do nothing if it is the first call
 	if (call_nr >= 2) {
 		rowhammer_sim(message, message_len);
 	}
+
+	pretty_print_cfg_rm();
+	return;
 }
 
 void rowhammer_sim(const uint8_t *message, size_t message_len)
 {
-	log("\e[36m[RHSIM] {rowhammer_sim.c:rowhammer_sim()}: Rowhammer simulation called\e[39m\n");
+	pretty_print_cfg("[RHSIM] {rowhammer_sim.c:rowhammer_sim()}");
+	pretty_print_v_text("Rowhammer simulation called");
 
 	// Change message for the second call
 	// Print original message
-	log("\e[36m[RHSIM] {rowhammer_sim.c:rowhammer_sim()}: Message: 0x");
-	for (int i = 0; i < message_len; i++)
-		log("%02x", message[i]);
-	log("\e[39m\n");
+	pretty_print_v("Message:", message, message_len);
 
 	// Add 1 to first byte
 #pragma GCC diagnostic push
@@ -42,11 +38,11 @@ void rowhammer_sim(const uint8_t *message, size_t message_len)
 	uint8_t *mut_message = message;
 #pragma GCC diagnostic pop
 	mut_message[0] = mut_message[0] + 1;
-	log("\e[36m[RHSIM] {rowhammer_sim.c:rowhammer_sim()}: Message modified\e[39m\n");
+	pretty_print_v_text("Message modified");
 
 	// Print modified message
-		log("\e[36m[RHSIM] {rowhammer_sim.c:rowhammer_sim()}: Message: 0x");
-	for (int i = 0; i < message_len; i++)
-		log("%02x", message[i]);
-	log("\e[39m\n");
+	pretty_print_v("Message:", message, message_len);
+
+	pretty_print_cfg_rm();
+	return;
 }

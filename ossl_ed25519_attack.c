@@ -5,14 +5,9 @@
 #include "openssl/conf.h"
 #include "openssl/evp.h"
 #include "openssl/err.h"
-#include "openssl/pem.h"
+#include "openssl/sha.h"
 
-// stdout logger
-#ifdef ATCK_VERBOSE
-	#define log(...) printf(__VA_ARGS__)
-#else
-	#define log(...)
-#endif
+#include "pretty_print.h"
 
 
 #define SIGN_RUNS 2
@@ -25,24 +20,23 @@ uint8_t sig[SIGN_RUNS][64];
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len);
 int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2);
 
-
 int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2)
 {
-	log("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: Recover secret a\e[39m\n");
+	// Configure pretty print
+	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:recover_a()}");
+	pretty_print_text("Recover secret a:");
 
-#ifdef ATCK_VERBOSE
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: R  = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(R) * sizeof(uintptr_t), R);
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: A  = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(A) * sizeof(uintptr_t), A);
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: s1 = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(s1) * sizeof(uintptr_t), s1);
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: s2 = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(s2) * sizeof(uintptr_t), s2);
-#endif
+	pretty_print_v_mpz("R  =", R);
+	pretty_print_v_mpz("A  =", A);
+	pretty_print_v_mpz("s1 =", s1);
+	pretty_print_v_mpz("s2 =", s2);
 
 	// Compute hashes h1, h2
 	mpz_t h1, h2, h, s, tmp, l;
 	mpz_inits(h1, h2, h, s, tmp, l, NULL);
 	if (!sha512(h1, R, A, kmsg_original, sizeof(kmsg_original))
 		|| !sha512(h2, R, A, kmsg, sizeof(kmsg))) {
-		puts("\e[31mError computing hashes!\e[39m\n");
+		pretty_print_text_col("Error computing hashes!", PP_COL_RED);
 		goto err;
 	}
 	
@@ -54,30 +48,27 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	mpz_mod(h1, h1, l);
 	mpz_mod(h2, h2, l);
 
-#ifdef ATCK_VERBOSE
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: l          = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(l) * sizeof(uintptr_t), l);
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: h1 (mod l) = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(h1) * sizeof(uintptr_t), h1);
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: h2 (mod l) = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(h2) * sizeof(uintptr_t), h2);
-#endif
+	pretty_print_v_mpz("l          =", l);
+	pretty_print_v_mpz("h1 (mod l) =", h1);
+	pretty_print_v_mpz("h2 (mod l) =", h2);
 
 	// recover secret a = (s1 - s2) / (h1 - h2)
 	//                  = (s1 - s2) * (h1 - h2)^-1
 	mpz_sub(h, h1, h2);
 	mpz_mod(h, h, l);
 	if (!mpz_invert(h, h, l)) {
-		puts("\e[31mThere is no modular inverse of h!\e[39m\n");
+		pretty_print_text_col("There is no modular inverse of h = (h1 - h2)!", PP_COL_RED);
 		goto err;
 	}
 	mpz_sub(s, s1, s2);
 	mpz_mod(s, s, l);
 	mpz_mul(a, s, h);
 	mpz_mod(a, a, l);
-#ifdef ATCK_VERBOSE
-	gmp_printf("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: a = (%2d bytes) 0x%Zx\e[39m\n", mpz_size(a) * sizeof(uintptr_t), a);
-#endif
+
+	pretty_print_v_mpz("a =", a);
 
 	// Recreate signatures
-	log("\e[36m[ATCK] {ossl_ed25519_attack.c:recover_a()}: Checking a\e[39m\n");
+	pretty_print_v_text("Checking a:");
 	// r = s - H()*a
 	mpz_mul(h, h1, a);
 	mpz_mod(h, h, l);
@@ -89,21 +80,25 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	mpz_mod(tmp, tmp, l);
 
 	if (mpz_cmp(s1, tmp) == 0)
-		puts("\e[32mSecret a found.\e[39m");
+		pretty_print_text_col("Secret a successfully recovered.", PP_COL_GREEN);
 	else
-		puts("\e[31mCould not recreate signature.\e[39m");
+		pretty_print_text_col("Could not recreate signature.", PP_COL_RED);
 
 	mpz_clears(h1, h2, h, s, tmp, l, NULL);
+	pretty_print_cfg_rm();
 	return 1;
 
 err:
 	mpz_clears(h1, h2, h, s, tmp, l, NULL);
+	pretty_print_cfg_rm();
 	return 0;
 }
 
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len) 
 {
-	log("\e[36m[ATCK] {ossl_ed25519_attack.c:sha512()}: Computing SHA512\e[39m\n");
+	// Configure pretty print
+	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:sha512()}");
+	pretty_print_v_text("Computing SHA512");
 	
 	uint8_t *a_R, *a_A;
 	size_t a_R_len, a_A_len;
@@ -132,17 +127,22 @@ int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_
 	EVP_MD_CTX_free(hash_ctx);
 	free(a_R);
 	free(a_A);
+	pretty_print_cfg_rm();
 	return 1;
 
 err:
 	free(a_R);
 	free(a_A);
 	ERR_print_errors_fp(stderr);
+	pretty_print_cfg_rm();
 	return 0;
 }
 
 int main(int arc, char *argv[])
 {
+	pp_verbose = 1;
+
+	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:main()}");
 	int ret;
 
 	// Initialize the one and only crypto lib
@@ -151,13 +151,6 @@ int main(int arc, char *argv[])
 
 	// Load the human readable error strings for libcrypto
 	ERR_load_crypto_strings();
-
-	// Setup base64 encoder for printing to stdout
-	// Doc: https://www.openssl.org/docs/man1.1.1/man3/BIO_f_base64.html
-	BIO *b64 = BIO_new(BIO_f_base64());
-	BIO *bio = BIO_new_fp(stdout, BIO_NOCLOSE);
-	BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-	BIO_push(b64, bio);
 
 	EVP_PKEY *pkey = NULL;
 	EVP_PKEY_CTX *pctx = NULL;
@@ -175,15 +168,8 @@ int main(int arc, char *argv[])
 		goto err;
 
 	// Print public key
-	puts("Raw Public key: (base64)");
-	{
-		uint8_t pub[32];
-		size_t pub_len = sizeof(pub);
-		EVP_PKEY_get_raw_public_key(pkey, pub, &pub_len);
-		BIO_write(b64, pub, pub_len);
-		BIO_flush(b64);
-		puts("");
-	}
+	EVP_PKEY_get_raw_public_key(pkey, pub, &pub_len);
+	pretty_print("Raw public key:", pub, pub_len);
 
 	// Sign message
 	// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestSignInit.html
@@ -193,16 +179,15 @@ int main(int arc, char *argv[])
 		goto err;
 
 		// One-shot-sign (update and final are not supported with Ed25519)
-		log("\e[36m[ATCK] {ossl_ed25519_attack.c:main()}: Start Ed25519 sign\e[39m\n");
+		pretty_print_v_text("Start Ed25519 sign");
 		if (!EVP_DigestSign(mdctx, sig[sign_run], &sig_len, kmsg, sizeof(kmsg)))
 			goto err;
-		log("\e[36m[ATCK] {ossl_ed25519_attack.c:main()}: End Ed25519 sign\e[39m\n");
+		pretty_print_v_text("End Ed25519 sign");
 
 		// Print signature
-		puts("Raw signature: (base64)");
-		BIO_write(b64, sig[sign_run], sig_len);
-		BIO_flush(b64);
-		puts("");
+		pretty_print("Signature (R,s) = ", sig[sign_run], sig_len);
+		pretty_print("    R =", sig[sign_run], sig_len/2);
+		pretty_print("    s =", sig[sign_run] + sig_len/2, sig_len/2);
 
 		// Check signature
 		// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestVerifyInit.html
@@ -210,9 +195,9 @@ int main(int arc, char *argv[])
 			goto err;
 		ret = EVP_DigestVerify(mdctx, sig[sign_run], sig_len, kmsg_original, sizeof(kmsg_original));
 		if (ret == 1)
-			puts("\e[32mSignature successfully verified.\e[39m");
+			pretty_print_text_col("Signature successfully verified.", PP_COL_GREEN);
 		else if (ret == 0)
-			puts("\e[31mSignature could not be verified.\e[39m");
+			pretty_print_text_col("Signature could not be verified.", PP_COL_RED);
 		else
 			goto err;
 	}
@@ -228,13 +213,12 @@ int main(int arc, char *argv[])
 		mpz_import(s2, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[1] + 32);
 
 		recover_a(a, A, R, s1, s2);
-		gmp_printf("a = 0x%Zx (%d)\n", a, mpz_size(a) * sizeof(uintptr_t));
+		pretty_print_mpz("a =", a);
 
 		mpz_clears(a, A, R, s1, s2, NULL);
 	}
 	
 	// Free stuff
-	BIO_free_all(b64);
 	EVP_MD_CTX_free(mdctx);
 	//EVP_PKEY_CTX_free(pctx); <- pctx became part of mdctx which is freed already
 
@@ -247,9 +231,11 @@ int main(int arc, char *argv[])
 	// Remove error strings
 	ERR_free_strings();
 
+	pretty_print_cfg_rm();
 	return 0;
 
 err:
 	ERR_print_errors_fp(stderr);
+	pretty_print_cfg_rm();
 	return 0;
 }

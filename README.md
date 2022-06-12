@@ -7,19 +7,15 @@ This is part of a small university project to evaluate possible mitigations agai
 ```
 git clone --recurse-submodules https://github.com/mastercaution/det-sign-fault-sim.git
 ```
-### Build modified OpenSSL
-1. Build Rowhammer simulator lib
+### Patch OpenSSL
+1. Patch OpenSSL source files for the simulator:
     ```
-    make sim
+    git -C openssl apply ../ossl_ed25519_rowhammer_sim.patch
     ```
-2. Patch OpenSSL source files for the simulator:
+2. Build OpenSSL with sim activated:
     ```
-    cd openssl
-    git apply ../ossl_ed25519_rowhammer_sim.patch
+    make openssl
     ```
-3. Build OpenSSL and linking the sim
-    1. `CPPFLAGS+=-DROWHAMMER_SIM LDFLAGS+="../rowhammer_sim.a" ./Configure`
-    2. `make`
 
 > CAUTION: This is now a modified version of OpenSSL! Do __not__ install it anywhere and __only__ use is for this simulator!
 
@@ -31,4 +27,4 @@ make
 
 ## Attack Information
 ### OSSL Ed25519 Attack (`ossl_ed25519_attack`)
-This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the signing algorithm to use a nonce twice for different messages.
+This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the signing algorithm to use a nonce twice for different messages. It recovers the secret parameter `a` to be able to create forged signatures.

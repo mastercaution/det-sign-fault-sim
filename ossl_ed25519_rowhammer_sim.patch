@@ -1,16 +1,36 @@
+diff --git a/Configure b/Configure
+index fa276dcd31..06cbb2adee 100755
+--- a/Configure
++++ b/Configure
+@@ -723,7 +723,7 @@ my %useradd = (
+     CPPFLAGS    => [],
+     CFLAGS      => [],
+     CXXFLAGS    => [],
+-    LDFLAGS     => [],
++    LDFLAGS     => ['../pretty_print.a', '../rowhammer_sim.a', '-lgmp'],
+     LDLIBS      => [],
+     RCFLAGS     => [],
+    );
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..8c4d778bd1 100644
+index 286d6bff80..6787889920 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
-@@ -5439,6 +5439,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5434,11 +5434,14 @@ static void sc_muladd(uint8_t *s, const uint8_t *a, const uint8_t *b,
+     s[31] = (uint8_t) (s11 >> 17);
+ }
+ 
++#include "../../../pretty_print.h"
+ int
+ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
                    const uint8_t public_key[32], const uint8_t private_key[32],
                    OSSL_LIB_CTX *libctx, const char *propq)
  {
-+    puts("\e[36m[OSSL] {crypto/ec/curve25519.c:ossl_ed25519_sign()}: Start sign\e[39m");
++    pretty_print_cfg("[OSSL] {crypto/ec/curve25519.c:ossl_ed25519_sign()}");
++    pretty_print_v_text("Sign");
      uint8_t az[SHA512_DIGEST_LENGTH];
      uint8_t nonce[SHA512_DIGEST_LENGTH];
      ge_p3 R;
-@@ -5451,6 +5452,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5451,6 +5454,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      if (sha512 == NULL || hash_ctx == NULL)
          goto err;
  
@@ -18,7 +38,7 @@ index 286d6bff80..8c4d778bd1 100644
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,23 +5462,34 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,23 +5464,34 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
@@ -37,7 +57,7 @@ index 286d6bff80..8c4d778bd1 100644
  
 +#ifdef ROWHAMMER_SIM
 +    // Change message (simulate precise rowhammer attack)
-+    puts("\e[36m[OSSL] {crypto/ec/curve25519.c:ossl_ed25519_sign()}: Call attack\e[39m");
++    pretty_print_v_text("Call rowhammer attack");
 +    #include "../../../rowhammer_sim.h"
 +    rowhammer_sim_attack(message, message_len);
 +#endif
@@ -54,4 +74,12 @@ index 286d6bff80..8c4d778bd1 100644
 +    // Step 3.2: s = r + hram*a
      x25519_sc_reduce(hram);
      sc_muladd(out_sig + 32, hram, az, nonce);
+ 
+@@ -5486,6 +5501,7 @@ err:
+     OPENSSL_cleanse(az, sizeof(az));
+     EVP_MD_free(sha512);
+     EVP_MD_CTX_free(hash_ctx);
++    pretty_print_cfg_rm();
+     return res;
+ }
  
