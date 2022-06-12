@@ -8,7 +8,7 @@ RHSIM_LDFLAGS += $(LDFLAGS)
 RHSIM_DEFS += -DRHSIM_VERBOSE
 
 ATCK_CFLAGS += $(CFLAGS)
-ATCK_LDFLAGS += $(LDFLAGS) -I./openssl/include
+ATCK_LDFLAGS += $(LDFLAGS) -I./openssl/include -lgmp
 ATCK_DEFS += -DATCK_VERBOSE
 
 all: ossl_ed25519_attack
