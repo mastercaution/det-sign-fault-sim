@@ -12,14 +12,34 @@ index fa276dcd31..06cbb2adee 100755
      RCFLAGS     => [],
     );
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..6787889920 100644
+index 286d6bff80..5603ffab99 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
-@@ -5434,11 +5434,14 @@ static void sc_muladd(uint8_t *s, const uint8_t *a, const uint8_t *b,
+@@ -1841,7 +1841,7 @@ static void ge_tobytes(uint8_t *s, const ge_p2 *h)
+     s[31] ^= fe_isnegative(x) << 7;
+ }
+ 
+-static void ge_p3_tobytes(uint8_t *s, const ge_p3 *h)
++void ge_p3_tobytes(uint8_t *s, const ge_p3 *h)
+ {
+     fe recip;
+     fe x;
+@@ -4230,7 +4230,7 @@ static void table_select(ge_precomp *t, int pos, signed char b)
+  * Preconditions:
+  *   a[31] <= 127
+  */
+-static void ge_scalarmult_base(ge_p3 *h, const uint8_t *a)
++void ge_scalarmult_base(ge_p3 *h, const uint8_t *a)
+ {
+     signed char e[64];
+     signed char carry;
+@@ -5434,11 +5434,16 @@ static void sc_muladd(uint8_t *s, const uint8_t *a, const uint8_t *b,
      s[31] = (uint8_t) (s11 >> 17);
  }
  
 +#include "../../../pretty_print.h"
++#include "../../../flags.h"
++#include "openssl/rand.h"
  int
  ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
                    const uint8_t public_key[32], const uint8_t private_key[32],
@@ -30,23 +50,33 @@ index 286d6bff80..6787889920 100644
      uint8_t az[SHA512_DIGEST_LENGTH];
      uint8_t nonce[SHA512_DIGEST_LENGTH];
      ge_p3 R;
-@@ -5451,6 +5454,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5451,6 +5456,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      if (sha512 == NULL || hash_ctx == NULL)
          goto err;
  
-+    // Compute az from private key
++    // Compute a from private key
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,23 +5464,34 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,23 +5466,44 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
++    uint8_t m_rnd[64];
++    if (mit_rand) {
++        // Generate some randomness that can be added to the nonce r
++        if (!RAND_bytes(m_rnd, sizeof(m_rnd)))
++            goto err;
++
++        pretty_print_v("m_rnd =", m_rnd, sizeof(m_rnd));
++    }
++
 +    // Step 1: r = H(h_b, ... h_{2b-1}, M)
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, az + 32, 32)
 -        || !EVP_DigestUpdate(hash_ctx, message, message_len)
 +        || !EVP_DigestUpdate(hash_ctx, message, message_len) // First read of message
++        || ((mit_rand) ? !EVP_DigestUpdate(hash_ctx, m_rnd, sizeof(m_rnd)) : 0) // Mitigation: Add randomness to nonce r
          || !EVP_DigestFinal_ex(hash_ctx, nonce, &sz))
          goto err;
  
@@ -75,7 +105,7 @@ index 286d6bff80..6787889920 100644
      x25519_sc_reduce(hram);
      sc_muladd(out_sig + 32, hram, az, nonce);
  
-@@ -5486,6 +5501,7 @@ err:
+@@ -5486,6 +5513,7 @@ err:
      OPENSSL_cleanse(az, sizeof(az));
      EVP_MD_free(sha512);
      EVP_MD_CTX_free(hash_ctx);

@@ -32,8 +32,13 @@ This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the si
 ```
 Usage: ossl_ed25519_attack [OPTION...]
 
+ Mitigations:
+      --mit-rand             Add randomness to nonce
+
+ Output:
   -p, --no-color             Produce plain output without colors
   -v, --verbose              Produce verbose output
+
   -?, --help                 Give this help list
       --usage                Give a short usage message
   -V, --version              Print program version

