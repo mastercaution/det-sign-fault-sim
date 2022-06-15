@@ -32,6 +32,10 @@ This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the si
 ```
 Usage: ossl_ed25519_attack [OPTION...]
 
+ Faults:
+  -F, --fault[=FAULT]        Choose what parameter to fault:
+                             "M", "R", "A", "none" (default is M)
+
  Mitigations:
       --mit-rand             Add randomness to nonce
 

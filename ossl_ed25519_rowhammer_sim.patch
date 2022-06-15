@@ -1,5 +1,5 @@
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..5603ffab99 100644
+index 286d6bff80..b22f242540 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
 @@ -1841,7 +1841,7 @@ static void ge_tobytes(uint8_t *s, const ge_p2 *h)
@@ -45,7 +45,7 @@ index 286d6bff80..5603ffab99 100644
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,23 +5466,44 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,23 +5466,58 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
@@ -76,7 +76,21 @@ index 286d6bff80..5603ffab99 100644
 +    // Change message (simulate precise rowhammer attack)
 +    pretty_print_v_text("Call rowhammer attack");
 +    #include "../../../rowhammer_sim.h"
-+    rowhammer_sim_attack(message, message_len);
++    switch (fault_param)
++    {
++    case FLAGS_FAULT_PARAM_R:
++        rowhammer_sim_attack(out_sig, 32);
++        break;
++    case FLAGS_FAULT_PARAM_A:
++        rowhammer_sim_attack(public_key, 32);
++        break;
++    case FLAGS_FAULT_PARAM_M:
++        rowhammer_sim_attack(message, message_len);
++        break;
++    
++    default:
++        break;
++    }
 +#endif
 +
 +    // Step 3.1: hram = H(R, A, M)
@@ -92,7 +106,7 @@ index 286d6bff80..5603ffab99 100644
      x25519_sc_reduce(hram);
      sc_muladd(out_sig + 32, hram, az, nonce);
  
-@@ -5486,6 +5513,7 @@ err:
+@@ -5486,6 +5527,7 @@ err:
      OPENSSL_cleanse(az, sizeof(az));
      EVP_MD_free(sha512);
      EVP_MD_CTX_free(hash_ctx);
