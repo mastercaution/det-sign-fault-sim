@@ -1,5 +1,5 @@
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..b22f242540 100644
+index 286d6bff80..55091c2003 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
 @@ -1841,7 +1841,7 @@ static void ge_tobytes(uint8_t *s, const ge_p2 *h)
@@ -37,7 +37,12 @@ index 286d6bff80..b22f242540 100644
      uint8_t az[SHA512_DIGEST_LENGTH];
      uint8_t nonce[SHA512_DIGEST_LENGTH];
      ge_p3 R;
-@@ -5451,6 +5456,7 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5448,9 +5453,12 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+     unsigned int sz;
+     int res = 0;
+ 
++    uint8_t checksums[4][SHA512_DIGEST_LENGTH];
++
      if (sha512 == NULL || hash_ctx == NULL)
          goto err;
  
@@ -45,17 +50,26 @@ index 286d6bff80..b22f242540 100644
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,23 +5466,58 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,32 +5468,147 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
 +    uint8_t m_rnd[64];
-+    if (mit_rand) {
++    if (mitigations & FLAGS_MIT_RAND) {
 +        // Generate some randomness that can be added to the nonce r
-+        if (!RAND_bytes(m_rnd, sizeof(m_rnd)))
++        if (!RAND_priv_bytes(m_rnd, sizeof(m_rnd)))
 +            goto err;
 +
 +        pretty_print_v("m_rnd =", m_rnd, sizeof(m_rnd));
++    }
++
++    if (mitigations & FLAGS_MIT_CHECK) {
++        // Generate checksums for A, M
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, public_key, 32)
++            || !EVP_DigestUpdate(hash_ctx, message, message_len)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[0], NULL))
++            goto err;
 +    }
 +
 +    // Step 1: r = H(h_b, ... h_{2b-1}, M)
@@ -63,15 +77,54 @@ index 286d6bff80..b22f242540 100644
          || !EVP_DigestUpdate(hash_ctx, az + 32, 32)
 -        || !EVP_DigestUpdate(hash_ctx, message, message_len)
 +        || !EVP_DigestUpdate(hash_ctx, message, message_len) // First read of message
-+        || ((mit_rand) ? !EVP_DigestUpdate(hash_ctx, m_rnd, sizeof(m_rnd)) : 0) // Mitigation: Add randomness to nonce r
++        || ((mitigations & FLAGS_MIT_RAND) ? !EVP_DigestUpdate(hash_ctx, m_rnd, sizeof(m_rnd)) : 0) // Mitigation: Add randomness to nonce r
          || !EVP_DigestFinal_ex(hash_ctx, nonce, &sz))
          goto err;
  
 +    // Step 2: R = rB
      x25519_sc_reduce(nonce);
++    if (mitigations & FLAGS_MIT_CHECK) {
++        // Generate checksum r
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, nonce, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[1], NULL))
++            goto err;
++    }
      ge_scalarmult_base(&R, nonce);
      ge_p3_tobytes(out_sig, &R);
  
++    if (mitigations & FLAGS_MIT_CHECK) {
++        // Generate checksum for R
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, out_sig, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[2], NULL))
++            goto err;
++
++        // Repeat step 2 and check checksum for R
++        ge_scalarmult_base(&R, nonce);
++        ge_p3_tobytes(out_sig, &R);
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, out_sig, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[2], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for R incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for R correct");
++
++        // Check checksum for r
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, nonce, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[1], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for r incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for r correct");
++    }
++
 +#ifdef ROWHAMMER_SIM
 +    // Change message (simulate precise rowhammer attack)
 +    pretty_print_v_text("Call rowhammer attack");
@@ -106,7 +159,40 @@ index 286d6bff80..b22f242540 100644
      x25519_sc_reduce(hram);
      sc_muladd(out_sig + 32, hram, az, nonce);
  
-@@ -5486,6 +5527,7 @@ err:
++    if (mitigations & FLAGS_MIT_CHECK) {
++        // Check checksums for R
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, out_sig, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[2], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for R incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for R correct");
++
++        // Check checksums for A, M
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, public_key, 32)
++            || !EVP_DigestUpdate(hash_ctx, message, message_len)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[0], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for (A,M) incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for (A,M) correct");
++    }
++
+     res = 1;
++    goto err;
++
++panic:
++    // Output random bytes
++    RAND_bytes(out_sig, 64);
++
+ err:
+     OPENSSL_cleanse(nonce, sizeof(nonce));
      OPENSSL_cleanse(az, sizeof(az));
      EVP_MD_free(sha512);
      EVP_MD_CTX_free(hash_ctx);

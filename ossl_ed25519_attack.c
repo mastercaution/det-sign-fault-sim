@@ -18,12 +18,13 @@
 
 #define ARGFLAG_FAULT		'F'
 #define ARGFLAG_MIT_RAND 	0x80
+#define ARGFLAG_MIT_CHECK 	0x81
 #define ARGFLAG_VERBOSE		'v'
 #define ARGFLAG_NO_COLOR	'p'
 
 // Globals
 int fault_param = FLAGS_FAULT_PARAM_M;
-int mit_rand = 0;
+int mitigations = 0;
 
 // Configure argp
 const char *argp_program_version = "ossl-ed25519-attack 1.0.2";
@@ -34,6 +35,7 @@ static struct argp_option options[] = {
 
 	{0,0,0,0, "Mitigations:"},
 	{"mit-rand", ARGFLAG_MIT_RAND, 0, 0, "Add randomness to nonce"},
+	{"mit-check", ARGFLAG_MIT_CHECK, 0, 0, "Check integrity of parameters during signature generation"},
 
 	{0,0,0,0, "Output:"},
 	{"verbose", ARGFLAG_VERBOSE, 0, 0, "Produce verbose output"},
@@ -70,7 +72,10 @@ static int parse_opt (int key, char *arg, struct argp_state *state)
 	switch (key)
 	{
 	case ARGFLAG_MIT_RAND:
-		mit_rand = 1;
+		mitigations |= FLAGS_MIT_RAND;
+		break;
+	case ARGFLAG_MIT_CHECK:
+		mitigations |= FLAGS_MIT_CHECK;
 		break;
 	case ARGFLAG_VERBOSE:
 		pp_verbose = 1;

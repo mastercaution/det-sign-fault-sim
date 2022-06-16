@@ -37,6 +37,7 @@ Usage: ossl_ed25519_attack [OPTION...]
                              "M", "R", "A", "none" (default is M)
 
  Mitigations:
+      --mit-check            Check parameters during sign
       --mit-rand             Add randomness to nonce
 
  Output:

@@ -8,4 +8,6 @@
 extern int fault_param;
 
 // Mitigation flags
-extern int mit_rand;		// Mitigation: Additional randomness
+#define FLAGS_MIT_RAND      1 << 0 // Mitigation: Additional randomness
+#define FLAGS_MIT_CHECK     1 << 1 // Mitigation: Check params during signing
+extern int mitigations;
