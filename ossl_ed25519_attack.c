@@ -31,7 +31,7 @@ const char *argp_program_version = "ossl-ed25519-attack 1.0.2";
 static char doc[] = "A simulated fault attack on OpenSSL Ed25519";
 static struct argp_option options[] = {
 	{0,0,0,0, "Faults:"},
-	{"fault", ARGFLAG_FAULT, "FAULT", OPTION_ARG_OPTIONAL, "Choose what parameter(s) to fault:\n\"M\", \"R\", \"A\", \"none\" (default is M)" },
+	{"fault", ARGFLAG_FAULT, "FAULT", OPTION_ARG_OPTIONAL, "Choose what parameter(s) to fault:\n\"M\", \"R\", \"A\", \"none\"\n(not specifying -F is equivalent to \"-FM\")" },
 
 	{0,0,0,0, "Mitigations:"},
 	{"mit-rand", ARGFLAG_MIT_RAND, 0, 0, "Add randomness to nonce"},

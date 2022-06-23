@@ -34,7 +34,8 @@ Usage: ossl_ed25519_attack [OPTION...]
 
  Faults:
   -F, --fault[=FAULT]        Choose what parameter(s) to fault:
-                             "M", "R", "A", "none" (default is M)
+                             "M", "R", "A", "none"
+                             (not specifying -F is equivalent to "-FM")
 
  Mitigations:
       --mit-check            Check integrity of parameters during signature
@@ -48,7 +49,6 @@ Usage: ossl_ed25519_attack [OPTION...]
   -?, --help                 Give this help list
       --usage                Give a short usage message
   -V, --version              Print program version
-
 ```
 
 #### Examples
