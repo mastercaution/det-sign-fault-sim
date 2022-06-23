@@ -33,11 +33,12 @@ This is a simulated fault attack on OpenSSL Ed25519 signing, which forces the si
 Usage: ossl_ed25519_attack [OPTION...]
 
  Faults:
-  -F, --fault[=FAULT]        Choose what parameter to fault:
+  -F, --fault[=FAULT]        Choose what parameter(s) to fault:
                              "M", "R", "A", "none" (default is M)
 
  Mitigations:
-      --mit-check            Check parameters during sign
+      --mit-check            Check integrity of parameters during signature
+                             generation
       --mit-rand             Add randomness to nonce
 
  Output:
@@ -47,4 +48,15 @@ Usage: ossl_ed25519_attack [OPTION...]
   -?, --help                 Give this help list
       --usage                Give a short usage message
   -V, --version              Print program version
+
 ```
+
+#### Examples
+- Enable verbose output and fault parameters R and M:
+    ```
+    ./ossl_ed25519_attack -v -FRM
+    ```
+- Activate additional randomness in nonce generation and run fault attack on the message, which is the default if "-F" not specified:
+    ```
+    ./ossl_ed25519_attack --mit-rand
+    ```
