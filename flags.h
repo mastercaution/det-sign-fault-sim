@@ -1,10 +1,10 @@
 #pragma once
 
 // Fault flags
-#define FLAGS_FAULT_PARAM_NONE 0
-#define FLAGS_FAULT_PARAM_R 1
-#define FLAGS_FAULT_PARAM_A 2
-#define FLAGS_FAULT_PARAM_M 3
+#define FLAGS_FAULT_PARAM_NONE  1 << 0
+#define FLAGS_FAULT_PARAM_R     1 << 1
+#define FLAGS_FAULT_PARAM_A     1 << 2
+#define FLAGS_FAULT_PARAM_M     1 << 3
 extern int fault_param;
 
 // Mitigation flags

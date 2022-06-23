@@ -31,7 +31,7 @@ const char *argp_program_version = "ossl-ed25519-attack 1.0.2";
 static char doc[] = "A simulated fault attack on OpenSSL Ed25519";
 static struct argp_option options[] = {
 	{0,0,0,0, "Faults:"},
-	{"fault", ARGFLAG_FAULT, "FAULT", OPTION_ARG_OPTIONAL, "Choose what parameter to fault:\n\"M\", \"R\", \"A\", \"none\" (default is M)" },
+	{"fault", ARGFLAG_FAULT, "FAULT", OPTION_ARG_OPTIONAL, "Choose what parameter(s) to fault:\n\"M\", \"R\", \"A\", \"none\" (default is M)" },
 
 	{0,0,0,0, "Mitigations:"},
 	{"mit-rand", ARGFLAG_MIT_RAND, 0, 0, "Add randomness to nonce"},
@@ -83,20 +83,32 @@ static int parse_opt (int key, char *arg, struct argp_state *state)
 	case ARGFLAG_NO_COLOR:
 		pp_color = 0;
 		break;
-	case ARGFLAG_FAULT:
+	case ARGFLAG_FAULT: {
 		if (arg == NULL)
 			return ARGP_ERR_UNKNOWN;
-		else if (strcmp(arg, "none") == 0)
-			fault_param = FLAGS_FAULT_PARAM_NONE;
-		else if (strcmp(arg, "R") == 0)
-			fault_param = FLAGS_FAULT_PARAM_R;
-		else if (strcmp(arg, "A") == 0)
-			fault_param = FLAGS_FAULT_PARAM_A;
-		else if (strcmp(arg, "M") == 0)
-			fault_param = FLAGS_FAULT_PARAM_M;
-		else
-			return ARGP_ERR_UNKNOWN;
+		fault_param = FLAGS_FAULT_PARAM_NONE;
+		if (strcmp(arg, "none") == 0)
+			return 0;
+		int len = strlen(arg);
+		for (int i = 0; i < len; i++) {
+			switch (arg[i])
+			{
+			case 'R':
+				fault_param |= FLAGS_FAULT_PARAM_R;
+				break;
+			case 'A':
+				fault_param |= FLAGS_FAULT_PARAM_A;
+				break;
+			case 'M':
+				fault_param |= FLAGS_FAULT_PARAM_M;
+				break;
+			
+			default:
+				return ARGP_ERR_UNKNOWN;
+			}
+		}
 		break;
+	}
 	
 	default:
 		return ARGP_ERR_UNKNOWN;
@@ -199,6 +211,11 @@ int recover_a(mpz_t a, const mpz_t A, const mpz_t fA, const mpz_t R, const mpz_t
 	mpz_export(sig, NULL, -1, sizeof(uint8_t), 0, 0, nR);
 	mpz_export(sig + 32, NULL, -1, sizeof(uint8_t), 0, 0, tmp);
 	mpz_export(a_A, NULL, -1, sizeof(uint8_t), 0, 0, A);
+
+	// Print forged signature
+	pretty_print("Forged signature (R,s) =", sig, sizeof(sig));
+	pretty_print("    R =", sig, sizeof(sig)/2);
+	pretty_print("    s =", sig + sizeof(sig)/2, sizeof(sig)/2);
 
 	ret = verify_ossl(sig, a_A, test_msg, sizeof(test_msg));
 	if (ret == 1)

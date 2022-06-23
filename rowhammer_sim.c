@@ -10,12 +10,13 @@ static int call_nr = 0;
 void rowhammer_sim_attack(const uint8_t *parameter, size_t param_len)
 {
 	pretty_print_cfg("[RHSIM] {rowhammer_sim.c:rowhammer_sim_attack()}");
-	pretty_print_v_text("Attack called");
-	call_nr++;
 
 	// Do nothing if it is the first call
 	if (call_nr >= 2) {
+		pretty_print_v_text("Attack called (fault injection run)");
 		rowhammer_sim(parameter, param_len);
+	} else {
+		pretty_print_v_text("Attack called (normal run)");
 	}
 
 	pretty_print_cfg_rm();
@@ -45,4 +46,9 @@ void rowhammer_sim(const uint8_t *parameter, size_t param_len)
 
 	pretty_print_cfg_rm();
 	return;
+}
+
+void rowhammer_sim_inc()
+{
+	call_nr++;
 }
