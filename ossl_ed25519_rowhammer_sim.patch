@@ -1,5 +1,5 @@
 diff --git a/crypto/ec/curve25519.c b/crypto/ec/curve25519.c
-index 286d6bff80..557a2ebeae 100644
+index 286d6bff80..34bc64021a 100644
 --- a/crypto/ec/curve25519.c
 +++ b/crypto/ec/curve25519.c
 @@ -1841,7 +1841,7 @@ static void ge_tobytes(uint8_t *s, const ge_p2 *h)
@@ -50,7 +50,7 @@ index 286d6bff80..557a2ebeae 100644
      if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
          || !EVP_DigestUpdate(hash_ctx, private_key, 32)
          || !EVP_DigestFinal_ex(hash_ctx, az, &sz))
-@@ -5460,32 +5468,150 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
+@@ -5460,32 +5468,169 @@ ossl_ed25519_sign(uint8_t *out_sig, const uint8_t *message, size_t message_len,
      az[31] &= 63;
      az[31] |= 64;
  
@@ -85,13 +85,6 @@ index 286d6bff80..557a2ebeae 100644
  
 +    // Step 2: R = rB
      x25519_sc_reduce(nonce);
-+    if (mitigations & FLAGS_MIT_CHECK) {
-+        // Generate checksum r
-+        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
-+            || !EVP_DigestUpdate(hash_ctx, nonce, 32)
-+            || !EVP_DigestFinal_ex(hash_ctx, checksums[1], NULL))
-+            goto err;
-+    }
      ge_scalarmult_base(&R, nonce);
      ge_p3_tobytes(out_sig, &R);
  
@@ -114,17 +107,6 @@ index 286d6bff80..557a2ebeae 100644
 +            goto panic;
 +        }
 +        pretty_print_v_text("Checksum for R correct");
-+
-+        // Check checksum for r
-+        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
-+            || !EVP_DigestUpdate(hash_ctx, nonce, 32)
-+            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
-+            goto err;
-+        if (memcmp(checksums[1], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
-+            pretty_print_v_text_col("Checksum for r incorrect!", PP_COL_RED);
-+            goto panic;
-+        }
-+        pretty_print_v_text("Checksum for r correct");
 +    }
 +
 +#ifdef ROWHAMMER_SIM
@@ -156,14 +138,41 @@ index 286d6bff80..557a2ebeae 100644
 +        || !EVP_DigestUpdate(hash_ctx, message, message_len) // Second read of message
          || !EVP_DigestFinal_ex(hash_ctx, hram, &sz))
          goto err;
- 
-+    // Step 3.2: s = r + hram*a
+-
      x25519_sc_reduce(hram);
++
++    if (mitigations & FLAGS_MIT_CHECK) {
++        // Generate checksum for hram
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, hram, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[1], NULL))
++            goto err;
++
++        // Repeat step 3.1 and check checksum for hram
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, out_sig, 32)
++            || !EVP_DigestUpdate(hash_ctx, public_key, 32)
++            || !EVP_DigestUpdate(hash_ctx, message, message_len)
++            || !EVP_DigestFinal_ex(hash_ctx, hram, &sz))
++            goto err;
++        x25519_sc_reduce(hram);
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, hram, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[1], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for h incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for h correct");
++    }
++
++    // Step 3.2: s = r + hram*a
 +    pretty_print_v("H(R,A,M) mod l =", hram, 32);
      sc_muladd(out_sig + 32, hram, az, nonce);
  
 +    if (mitigations & FLAGS_MIT_CHECK) {
-+        // Check checksums for R
++        // Check checksum for R
 +        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
 +            || !EVP_DigestUpdate(hash_ctx, out_sig, 32)
 +            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
@@ -173,6 +182,17 @@ index 286d6bff80..557a2ebeae 100644
 +            goto panic;
 +        }
 +        pretty_print_v_text("Checksum for R correct");
++
++        // Check checksum for hram
++        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
++            || !EVP_DigestUpdate(hash_ctx, hram, 32)
++            || !EVP_DigestFinal_ex(hash_ctx, checksums[3], NULL))
++            goto err;
++        if (memcmp(checksums[1], checksums[3], SHA512_DIGEST_LENGTH) != 0) {
++            pretty_print_v_text_col("Checksum for h incorrect!", PP_COL_RED);
++            goto panic;
++        }
++        pretty_print_v_text("Checksum for h correct");
 +
 +        // Check checksums for A, M
 +        if (!EVP_DigestInit_ex(hash_ctx, sha512, NULL)
