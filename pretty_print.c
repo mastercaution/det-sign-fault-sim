@@ -6,10 +6,14 @@
 
 int pp_verbose = 0;
 int pp_color = 1;
+int pp_silent = 0;
 char *pp_location = "[ATCK]";
 
 void pretty_print_col(const char *prefix, const uint8_t *data, const int size, const char *color)
 {
+	if (pp_silent)
+		return;
+	
 	char *pp_col = "";
 	char *pp_col_def = "";
 	if (pp_color) {
@@ -30,7 +34,7 @@ void pretty_print_col(const char *prefix, const uint8_t *data, const int size, c
 
 void pretty_print_v_col(const char *prefix, const uint8_t *data, const int size, const char *color)
 {
-	if (!pp_verbose)
+	if (!pp_verbose || pp_silent)
 		return;
 
 	char *pp_col_blue = "";
@@ -53,6 +57,9 @@ void pretty_print_v_col(const char *prefix, const uint8_t *data, const int size,
 
 void pretty_print_mpz_col(const char *prefix, const mpz_t data, const char *color)
 {
+	if (pp_silent)
+		return;
+	
 	char *pp_col_blue = "";
 	char *pp_col_def = "";
 	if (pp_color) {
@@ -65,7 +72,7 @@ void pretty_print_mpz_col(const char *prefix, const mpz_t data, const char *colo
 
 void pretty_print_v_mpz_col(const char *prefix, const mpz_t data, const char *color)
 {
-	if (!pp_verbose)
+	if (!pp_verbose || pp_silent)
 		return;
 
 	char *pp_col_blue = "";

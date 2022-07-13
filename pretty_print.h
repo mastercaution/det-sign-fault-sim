@@ -22,6 +22,7 @@
 
 extern int pp_verbose;
 extern int pp_color;
+extern int pp_silent;
 extern char *pp_location;
 
 void pretty_print_col(const char *prefix, const uint8_t *data, const int size, const char *color);

@@ -21,6 +21,7 @@
 #define ARGFLAG_MIT_CHECK 	0x81
 #define ARGFLAG_VERBOSE		'v'
 #define ARGFLAG_NO_COLOR	'p'
+#define ARGFLAG_SILENT		's'
 
 // Globals
 int fault_param = FLAGS_FAULT_PARAM_M;
@@ -40,6 +41,7 @@ static struct argp_option options[] = {
 	{0,0,0,0, "Output:"},
 	{"verbose", ARGFLAG_VERBOSE, 0, 0, "Produce verbose output"},
 	{"no-color", ARGFLAG_NO_COLOR, 0, 0, "Produce plain output without colors"},
+	{"silent", ARGFLAG_SILENT, 0, 0, "Produce no output at all"},
 	{0}
 };
 static int parse_opt (int key, char *arg, struct argp_state *state);
@@ -82,6 +84,9 @@ static int parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case ARGFLAG_NO_COLOR:
 		pp_color = 0;
+		break;
+	case ARGFLAG_SILENT:
+		pp_silent = 1;
 		break;
 	case ARGFLAG_FAULT: {
 		if (arg == NULL)
