@@ -350,9 +350,11 @@ int main(int arc, char *argv[])
 	// Sign message
 	// Doc: https://www.openssl.org/docs/man1.1.1/man3/EVP_DigestSignInit.html
 	mdctx = EVP_MD_CTX_new();
-	for (int sign_run = 0; sign_run < SIGN_RUNS; sign_run++) {
-		if (!EVP_DigestSignInit(mdctx, &pctx, NULL, NULL, pkey))
+	if (!EVP_DigestSignInit(mdctx, &pctx, NULL, NULL, pkey))
 		goto err;
+	for (int sign_run = 0; sign_run < SIGN_RUNS; sign_run++) {
+		// Reset kmsg
+		memcpy(kmsg, kmsg_original, sizeof(kmsg_original));
 
 		// One-shot-sign (update and final are not supported with Ed25519)
 		pretty_print_v_text("Start Ed25519 sign");
